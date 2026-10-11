@@ -16,8 +16,6 @@ import (
 	"jobz/models"
 )
 
-// ApplyToJob — candidate only.
-// POST /api/candidate/jobs/:id/apply
 func ApplyToJob(c *gin.Context) {
 	candidateIDStr := c.GetString(middlewares.CtxUserID)
 	candidateID, err := primitive.ObjectIDFromHex(candidateIDStr)
@@ -32,9 +30,6 @@ func ApplyToJob(c *gin.Context) {
 		return
 	}
 
-	// Fetch the job. We need it for two reasons:
-	// 1. To check it exists (404 if not)
-	// 2. To check the deadline hasn't passed (business rule #2)
 	var job models.Job
 	err = config.DB.Collection("jobs").FindOne(context.TODO(), bson.M{"_id": jobID}).Decode(&job)
 	if err == mongo.ErrNoDocuments {
@@ -46,13 +41,18 @@ func ApplyToJob(c *gin.Context) {
 		return
 	}
 
-	// BUSINESS RULE #2: cannot apply to an expired job.
+	// Primary check: stored status. Fast, authoritative.
+	if job.Status == models.JobStatusExpired {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "This job posting has expired"})
+		return
+	}
+	// Fallback: if the worker hasn't run yet, still reject by deadline.
 	if time.Now().After(job.Deadline) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "This job posting has expired"})
 		return
 	}
 
-	// BUSINESS RULE #1: candidate cannot apply to the same job twice.
+	// Business rule #1: no duplicate applications.
 	var existing models.Application
 	err = config.DB.Collection("applications").FindOne(
 		context.TODO(),
@@ -78,7 +78,6 @@ func ApplyToJob(c *gin.Context) {
 
 	result, err := config.DB.Collection("applications").InsertOne(context.TODO(), application)
 	if err != nil {
-		// Duplicate-key error means the unique index caught a race condition.
 		if mongo.IsDuplicateKeyError(err) {
 			c.JSON(http.StatusConflict, gin.H{"error": "You have already applied to this job"})
 			return
@@ -94,8 +93,6 @@ func ApplyToJob(c *gin.Context) {
 	})
 }
 
-// GetMyApplications — candidate only.
-// GET /api/candidate/applications
 func GetMyApplications(c *gin.Context) {
 	candidateIDStr := c.GetString(middlewares.CtxUserID)
 	candidateID, err := primitive.ObjectIDFromHex(candidateIDStr)
@@ -124,8 +121,6 @@ func GetMyApplications(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"applications": applications, "count": len(applications)})
 }
 
-// GetJobApplications — employer only, and only for their own job.
-// GET /api/employer/jobs/:id/applications
 func GetJobApplications(c *gin.Context) {
 	employerIDStr := c.GetString(middlewares.CtxUserID)
 	employerID, err := primitive.ObjectIDFromHex(employerIDStr)
@@ -151,7 +146,6 @@ func GetJobApplications(c *gin.Context) {
 		return
 	}
 
-	// Only the employer who posted the job can view its applications.
 	if job.EmployerID != employerID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "You can only view applications for jobs you posted"})
 		return
@@ -181,8 +175,6 @@ type UpdateStatusInput struct {
 	Status string `json:"status" binding:"required,oneof=pending reviewed accepted rejected"`
 }
 
-// UpdateApplicationStatus — employer only, and only for applications to their own jobs.
-// PUT /api/employer/applications/:id/status
 func UpdateApplicationStatus(c *gin.Context) {
 	employerIDStr := c.GetString(middlewares.CtxUserID)
 	employerID, err := primitive.ObjectIDFromHex(employerIDStr)
@@ -210,8 +202,6 @@ func UpdateApplicationStatus(c *gin.Context) {
 		return
 	}
 
-	// BUSINESS RULE #4: only the employer who posted the job can change application status.
-	// We verify this by walking application -> job -> employer, and comparing to the token.
 	var job models.Job
 	err = config.DB.Collection("jobs").
 		FindOne(context.TODO(), bson.M{"_id": application.JobID}).

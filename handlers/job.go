@@ -3,9 +3,9 @@ package handlers
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
@@ -38,8 +38,6 @@ type UpdateJobInput struct {
 	Deadline    time.Time `json:"deadline"`
 }
 
-// CreateJob — employer only.
-// POST /api/employer/jobs
 func CreateJob(c *gin.Context) {
 	employerIDStr := c.GetString(middlewares.CtxUserID)
 	employerID, err := primitive.ObjectIDFromHex(employerIDStr)
@@ -58,7 +56,6 @@ func CreateJob(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "salary_max must be greater than or equal to salary_min"})
 		return
 	}
-
 	if input.Deadline.Before(time.Now()) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Deadline must be in the future"})
 		return
@@ -73,6 +70,7 @@ func CreateJob(c *gin.Context) {
 		SalaryMax:   input.SalaryMax,
 		JobType:     input.JobType,
 		Deadline:    input.Deadline,
+		Status:      models.JobStatusActive,
 		EmployerID:  employerID,
 		CreatedAt:   now,
 		UpdatedAt:   now,
@@ -88,10 +86,13 @@ func CreateJob(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"job": job})
 }
 
-// ListJobs — public. Supports search + filters.
-// GET /api/jobs?location=Lagos&job_type=remote&min_salary=500000&q=engineer
 func ListJobs(c *gin.Context) {
 	filter := bson.M{}
+
+	// Default: only active jobs. Pass ?include_expired=true to see all.
+	if c.Query("include_expired") != "true" {
+		filter["status"] = models.JobStatusActive
+	}
 
 	if loc := c.Query("location"); loc != "" {
 		filter["location"] = bson.M{"$regex": loc, "$options": "i"}
@@ -129,8 +130,6 @@ func ListJobs(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"jobs": jobs, "count": len(jobs)})
 }
 
-// GetJob — public.
-// GET /api/jobs/:id
 func GetJob(c *gin.Context) {
 	id, err := primitive.ObjectIDFromHex(c.Param("id"))
 	if err != nil {
@@ -152,8 +151,6 @@ func GetJob(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"job": job})
 }
 
-// UpdateJob — employer only, and only the employer who posted it.
-// PUT /api/employer/jobs/:id
 func UpdateJob(c *gin.Context) {
 	employerIDStr := c.GetString(middlewares.CtxUserID)
 	employerID, err := primitive.ObjectIDFromHex(employerIDStr)
@@ -179,7 +176,6 @@ func UpdateJob(c *gin.Context) {
 		return
 	}
 
-	// BUSINESS RULE: only the employer who posted the job can modify it.
 	if existing.EmployerID != employerID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "You can only modify jobs you posted"})
 		return
@@ -192,13 +188,27 @@ func UpdateJob(c *gin.Context) {
 	}
 
 	update := bson.M{"updated_at": time.Now()}
-	if input.Title != ""       { update["title"] = strings.TrimSpace(input.Title) }
-	if input.Description != "" { update["description"] = strings.TrimSpace(input.Description) }
-	if input.Location != ""    { update["location"] = strings.TrimSpace(input.Location) }
-	if input.SalaryMin != 0    { update["salary_min"] = input.SalaryMin }
-	if input.SalaryMax != 0    { update["salary_max"] = input.SalaryMax }
-	if input.JobType != ""     { update["job_type"] = input.JobType }
-	if !input.Deadline.IsZero() { update["deadline"] = input.Deadline }
+	if input.Title != "" {
+		update["title"] = strings.TrimSpace(input.Title)
+	}
+	if input.Description != "" {
+		update["description"] = strings.TrimSpace(input.Description)
+	}
+	if input.Location != "" {
+		update["location"] = strings.TrimSpace(input.Location)
+	}
+	if input.SalaryMin != 0 {
+		update["salary_min"] = input.SalaryMin
+	}
+	if input.SalaryMax != 0 {
+		update["salary_max"] = input.SalaryMax
+	}
+	if input.JobType != "" {
+		update["job_type"] = input.JobType
+	}
+	if !input.Deadline.IsZero() {
+		update["deadline"] = input.Deadline
+	}
 
 	_, err = config.DB.Collection("jobs").UpdateOne(
 		context.TODO(),
@@ -213,8 +223,6 @@ func UpdateJob(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Job updated"})
 }
 
-// DeleteJob — employer only, and only the employer who posted it.
-// DELETE /api/employer/jobs/:id
 func DeleteJob(c *gin.Context) {
 	employerIDStr := c.GetString(middlewares.CtxUserID)
 	employerID, err := primitive.ObjectIDFromHex(employerIDStr)

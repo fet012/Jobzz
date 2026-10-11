@@ -19,7 +19,6 @@ import (
 
 // Input shapes for the two endpoints.
 // These are separate from models.Employer because the API accepts
-// a subset of fields — never the ID, never CreatedAt, etc.
 
 type RegisterEmployerInput struct {
 	Company  string `json:"company" binding:"required"`
