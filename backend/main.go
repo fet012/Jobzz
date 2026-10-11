@@ -19,6 +19,7 @@ import (
 	"jobz/config"
 	"jobz/handlers"
 	"jobz/routes"
+	"jobz/middlewares"
 )
 
 func main() {
@@ -31,6 +32,7 @@ func main() {
 	ensureIndexes()
 
 	r := gin.Default()
+	r.Use(middlewares.CORS())
 	routes.SetupRoutes(r, config.DB)
 
 	srv := &http.Server{

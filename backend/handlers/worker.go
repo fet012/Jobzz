@@ -11,8 +11,7 @@ import (
 	"jobz/models"
 )
 
-// StartExpiryWorker runs an expiry sweep immediately, then every hour.
-// It runs in a goroutine and returns immediately, so it doesn't block main.
+
 func StartExpiryWorker() {
 	go func() {
 		// Run once immediately so a fresh deploy doesn't wait an hour.

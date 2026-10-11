@@ -41,7 +41,7 @@ func ApplyToJob(c *gin.Context) {
 		return
 	}
 
-	// Primary check: stored status. Fast, authoritative.
+	// Primary check: stored status.
 	if job.Status == models.JobStatusExpired {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "This job posting has expired"})
 		return
